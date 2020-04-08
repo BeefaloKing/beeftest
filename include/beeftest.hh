@@ -1,4 +1,4 @@
-// BeefTest v1.0
+// BeefTest v1.1
 // Written by Beefalo
 #include <fstream>
 #include <iostream>
@@ -8,18 +8,17 @@
 #include <vector>
 
 class TestCase;
-typedef bool (*testPtr)();
 typedef std::map<std::string, TestCase*> testMap;
 
-typedef std::vector<TestCase*> testList;
-typedef std::map<std::string, testList> fileMap;
+typedef std::vector<TestCase*> testVector;
+typedef std::map<std::string, testVector> fileMap;
 
-typedef std::set<std::string> nameList;
+typedef std::set<std::string> nameSet;
 
 class TestCase
 {
 public:
-	TestCase(std::string name, testPtr test, std::string file, int line) :
+	TestCase(std::string name, bool (*test)(), std::string file, int line) :
 		name(name), file(file), line(line), test(test)
 	{
 		getTests().emplace(name, this);
@@ -39,10 +38,10 @@ public:
 
 	// Executes tests with names listed by names or defined in files listed by files
 	// Executes all tests by default if both names and files are empty
-	static int runTests(nameList names, nameList files)
+	static int runTests(nameSet testNames, nameSet fileNames)
 	{
-		// Add all tests in each file to names
-		for (const auto& file : files)
+		// Add all test names in each file to testNames
+		for (const auto& file : fileNames)
 		{
 			auto it = getFiles().find(file);
 			if (it == getFiles().end())
@@ -52,22 +51,23 @@ public:
 			}
 			for (const auto& test : it->second)
 			{
-				names.emplace(test->name);
+				testNames.emplace(test->name);
 			}
 		}
 
-		testList list;
-		// Add all tests with matching name in names
-		if (names.empty())
+		testVector toRun;
+		// Add all tests whose name exists in testNames to toRun
+		// If no test names supplied, default to all tests
+		if (testNames.empty())
 		{
 			for (const auto& test : getTests())
 			{
-				list.push_back(test.second);
+				toRun.push_back(test.second);
 			}
 		}
 		else
 		{
-			for (const auto& name : names)
+			for (const auto& name : testNames)
 			{
 				auto it = getTests().find(name);
 				if (it == getTests().end())
@@ -75,16 +75,16 @@ public:
 					std::cout << "Test \"" << name << "\" not found!\n";
 					return -1;
 				}
-				list.push_back(it->second);
+				toRun.push_back(it->second);
 			}
 		}
-		return runTestList(list);
+		return runTestList(toRun);
 	}
 private:
 	std::string name;
 	std::string file;
 	int line;
-	testPtr test;
+	bool (*test)();// test;
 
 	static testMap& getTests()
 	{
@@ -98,7 +98,7 @@ private:
 		return files;
 	}
 
-	static int runTestList(testList list)
+	static int runTestList(testVector list)
 	{
 		std::ofstream log;
 		log.open("testlog.txt", std::ofstream::trunc);
@@ -135,8 +135,8 @@ private:
 #ifdef ENABLE_BEEF_MAIN
 int main(int argc, char* argv[])
 {
-	nameList names;
-	nameList files;
+	nameSet names;
+	nameSet files;
 
 	// argv[0] is the path of the executable and skipped
 	for (int i = 1; i < argc; i++)
