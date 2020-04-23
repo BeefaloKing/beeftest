@@ -15,16 +15,15 @@ Following that, include any production code you plan on testing and use the `BEE
 
 #include "myProductionCode.hh"
 
-BEEF_TEST(foobar)
+BEEF_TEST(foo)
 {
-	bool passed = true;
 	/*
-	 * Implement test here
+	 * Perform any initialization here
 	 */
-	return passed;
+	ASSERT(2 + 2 == 4);
 }
 ```
-`BEEF_TEST` expects you to define a function which returns a boolean. A return value of `true` indicates that the test passed.
+Inside each test you may define requirements by using the `ASSERT(expression)` macro. If an expression evaluates to false in one or more assertions, the test will fail.
 
 ## Running Tests
 Your compiled test code will by default run all tests. After running it will display a count of tests executed and tests failed.
@@ -33,11 +32,12 @@ $ ./test.exe
 1 tests executed!
 0 tests failed!
 ```
-All failing tests, if any, will be displayed.
+All failing tests, if any, will be displayed followed by the assertions that failed.
 ```
 $ ./test.exe
-[foobar] (test/test_main.cpp:4) FAILED
-1 tests executed!
+[foobar] (test/test_main.cpp:14) FAILED
+  ASSERT(2 + 2 == 5); FAILED
+2 tests executed!
 1 tests failed!
 ```
 A full log of all tests run (and whether they passed or failed) will be written to _testlog.txt_

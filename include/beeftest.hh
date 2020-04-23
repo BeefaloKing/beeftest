@@ -1,4 +1,4 @@
-// BeefTest v1.1
+// BeefTest v1.2
 // Written by Beefalo
 #include <fstream>
 #include <iostream>
@@ -7,18 +7,15 @@
 #include <string>
 #include <vector>
 
-class TestCase;
-typedef std::map<std::string, TestCase*> testMap;
+namespace BEEF
+{
+	class TestCase;
+}
 
-typedef std::vector<TestCase*> testVector;
-typedef std::map<std::string, testVector> fileMap;
-
-typedef std::set<std::string> nameSet;
-
-class TestCase
+class BEEF::TestCase
 {
 public:
-	TestCase(std::string name, bool (*test)(), std::string file, int line) :
+	TestCase(std::string name, void (*test)(std::vector<std::string>&), std::string file, int line) :
 		name(name), file(file), line(line), test(test)
 	{
 		getTests().emplace(name, this);
@@ -26,9 +23,9 @@ public:
 		it->second.push_back(this);
 	}
 
-	bool run() const
+	void run(std::vector<std::string>& failedAsserts) const
 	{
-		return test();
+		test(failedAsserts);
 	}
 
 	void print(std::ostream& out)
@@ -38,7 +35,7 @@ public:
 
 	// Executes tests with names listed by names or defined in files listed by files
 	// Executes all tests by default if both names and files are empty
-	static int runTests(nameSet testNames, nameSet fileNames)
+	static int runTests(std::set<std::string> testNames, std::set<std::string> fileNames)
 	{
 		// Add all test names in each file to testNames
 		for (const auto& file : fileNames)
@@ -55,7 +52,7 @@ public:
 			}
 		}
 
-		testVector toRun;
+		std::vector<TestCase*> toRun;
 		// Add all tests whose name exists in testNames to toRun
 		// If no test names supplied, default to all tests
 		if (testNames.empty())
@@ -84,31 +81,36 @@ private:
 	std::string name;
 	std::string file;
 	int line;
-	bool (*test)();// test;
+	void (*test)(std::vector<std::string>&); // test pointer;
 
-	static testMap& getTests()
+	static std::map<std::string, TestCase*>& getTests()
 	{
-		static testMap tests;
+		static std::map<std::string, TestCase*> tests;
 		return tests;
 	}
 
-	static fileMap& getFiles()
+	static std::map<std::string, std::vector<TestCase*>>& getFiles()
 	{
-		static fileMap files;
+		static std::map<std::string, std::vector<TestCase*>> files;
 		return files;
 	}
 
-	static int runTestList(testVector list)
+	static int runTestList(std::vector<TestCase*> list)
 	{
 		std::ofstream log;
 		log.open("testlog.txt", std::ofstream::trunc);
 
 		int failed = 0;
+		std::vector<std::string> failedAssertions;
 		for (const auto& test : list)
 		{
 			test->print(log);
 			log << std::flush;
-			if (test->run())
+
+			failedAssertions.clear();
+			test->run(failedAssertions);
+
+			if (failedAssertions.empty())
 			{
 				log << " PASSED\n";
 			}
@@ -118,6 +120,12 @@ private:
 				test->print(std::cout);
 				std::cout << " FAILED\n";
 				log << " FAILED\n";
+
+				for (const auto& expression : failedAssertions)
+				{
+					std::cout << "  ASSERT(" << expression << "); FAILED\n";
+					log << "  ASSERT(" << expression << "); FAILED\n";
+				}
 			}
 		}
 		std::cout << list.size() << " tests executed!\n" << failed << " tests failed!\n";
@@ -128,15 +136,18 @@ private:
 };
 
 #define BEEF_TEST(TESTNAME)\
-	bool BEEF_FUN_##TESTNAME();\
-	TestCase BEEF_OBJ_##TESTNAME {#TESTNAME, BEEF_FUN_##TESTNAME, __FILE__, __LINE__};\
-	bool BEEF_FUN_##TESTNAME()
+	void BEEF_FUN_##TESTNAME(std::vector<std::string>&);\
+	BEEF::TestCase BEEF_OBJ_##TESTNAME {#TESTNAME, BEEF_FUN_##TESTNAME, __FILE__, __LINE__};\
+	void BEEF_FUN_##TESTNAME(std::vector<std::string>& BEEF_FAILED_EXPRESSIONS)
+
+#define ASSERT(EXPRESSION)\
+	if (!(EXPRESSION)) BEEF_FAILED_EXPRESSIONS.push_back(#EXPRESSION);
 
 #ifdef ENABLE_BEEF_MAIN
 int main(int argc, char* argv[])
 {
-	nameSet names;
-	nameSet files;
+	std::set<std::string> names;
+	std::set<std::string> files;
 
 	// argv[0] is the path of the executable and skipped
 	for (int i = 1; i < argc; i++)
@@ -174,6 +185,6 @@ int main(int argc, char* argv[])
 		names.emplace(arg);
 	}
 
-	return TestCase::runTests(names, files);
+	return BEEF::TestCase::runTests(names, files);
 }
 #endif //ENABLE_BEEF_MAIN
