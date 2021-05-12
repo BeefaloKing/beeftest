@@ -1,190 +1,283 @@
-// BeefTest v1.2
-// Written by Beefalo
-#include <fstream>
+// BeefTest 2.0
+// Written (poorly) by Beefalo
+#include <cstddef>
+#include <iomanip>
 #include <iostream>
 #include <map>
 #include <set>
 #include <string>
 #include <vector>
 
-namespace BEEF
+namespace beeftest {
+class Test;
+struct Logger;
+struct Result;
+typedef void(*TestFunc)(std::vector<Result> &);
+typedef bool(*CmpFunc)(const Test*, const Test*);
+
+class Test
 {
-	class TestCase;
-}
-
-class BEEF::TestCase
-{
-public:
-	TestCase(std::string name, void (*test)(std::vector<std::string>&), std::string file, int line) :
-		name(name), file(file), line(line), test(test)
-	{
-		getTests().emplace(name, this);
-		auto it = getFiles().emplace(file, NULL).first;
-		it->second.push_back(this);
-	}
-
-	void run(std::vector<std::string>& failedAsserts) const
-	{
-		test(failedAsserts);
-	}
-
-	void print(std::ostream& out)
-	{
-		out << "[" << name << "] (" << file << ":" << line << ")";
-	}
-
-	// Executes tests with names listed by names or defined in files listed by files
-	// Executes all tests by default if both names and files are empty
-	static int runTests(std::set<std::string> testNames, std::set<std::string> fileNames)
-	{
-		// Add all test names in each file to testNames
-		for (const auto& file : fileNames)
-		{
-			auto it = getFiles().find(file);
-			if (it == getFiles().end())
-			{
-				std::cout << "File \"" << file << "\" not found or contains no tests!\n";
-				return -1;
-			}
-			for (const auto& test : it->second)
-			{
-				testNames.emplace(test->name);
-			}
-		}
-
-		std::vector<TestCase*> toRun;
-		// Add all tests whose name exists in testNames to toRun
-		// If no test names supplied, default to all tests
-		if (testNames.empty())
-		{
-			for (const auto& test : getTests())
-			{
-				toRun.push_back(test.second);
-			}
-		}
-		else
-		{
-			for (const auto& name : testNames)
-			{
-				auto it = getTests().find(name);
-				if (it == getTests().end())
-				{
-					std::cout << "Test \"" << name << "\" not found!\n";
-					return -1;
-				}
-				toRun.push_back(it->second);
-			}
-		}
-		return runTestList(toRun);
-	}
 private:
-	std::string name;
-	std::string file;
-	int line;
-	void (*test)(std::vector<std::string>&); // test pointer;
+	// Singleton getter functions.
+	inline static std::multimap<std::string, Test*> &byName();
+	inline static std::multimap<std::string, Test*> &byFile();
+	inline static std::set<Test*, CmpFunc> &tests(); // Selected tests.
 
-	static std::map<std::string, TestCase*>& getTests()
-	{
-		static std::map<std::string, TestCase*> tests;
-		return tests;
-	}
+	inline static bool cmp(const Test* left, const Test* right);
+	inline static bool select(const std::string &key, const std::multimap<std::string, Test*> &map);
+public:
+	const std::string name;
+	const std::string file;
+	const size_t line;
+	const TestFunc test;
 
-	static std::map<std::string, std::vector<TestCase*>>& getFiles()
-	{
-		static std::map<std::string, std::vector<TestCase*>> files;
-		return files;
-	}
+	inline Test();
+	inline Test(const std::string &name, const std::string &file, size_t line, TestFunc test);
 
-	static int runTestList(std::vector<TestCase*> list)
-	{
-		std::ofstream log;
-		log.open("testlog.txt", std::ofstream::trunc);
+	inline static size_t &maxLine(size_t line = 0); // Used for pretty printing.
 
-		int failed = 0;
-		std::vector<std::string> failedAssertions;
-		for (const auto& test : list)
-		{
-			test->print(log);
-			log << std::flush;
-
-			failedAssertions.clear();
-			test->run(failedAssertions);
-
-			if (failedAssertions.empty())
-			{
-				log << " PASSED\n";
-			}
-			else
-			{
-				failed++;
-				test->print(std::cout);
-				std::cout << " FAILED\n";
-				log << " FAILED\n";
-
-				for (const auto& expression : failedAssertions)
-				{
-					std::cout << "  ASSERT(" << expression << "); FAILED\n";
-					log << "  ASSERT(" << expression << "); FAILED\n";
-				}
-			}
-		}
-		std::cout << list.size() << " tests executed!\n" << failed << " tests failed!\n";
-
-		log.close();
-		return failed;
-	}
+	inline static bool runName(const std::string &name); // Select tests by name.
+	inline static bool runFile(const std::string &file); // Select tests by file.
+	inline static size_t run(const Logger &logger); // Runs selected tests (defaults to all).
 };
 
-#define BEEF_TEST(TESTNAME)\
-	void BEEF_FUN_##TESTNAME(std::vector<std::string>&);\
-	BEEF::TestCase BEEF_OBJ_##TESTNAME {#TESTNAME, BEEF_FUN_##TESTNAME, __FILE__, __LINE__};\
-	void BEEF_FUN_##TESTNAME(std::vector<std::string>& BEEF_FAILED_EXPRESSIONS)
-
-#define ASSERT(EXPRESSION)\
-	if (!(EXPRESSION)) BEEF_FAILED_EXPRESSIONS.push_back(#EXPRESSION);
-
-#ifdef ENABLE_BEEF_MAIN
-int main(int argc, char* argv[])
+struct Logger
 {
-	std::set<std::string> names;
-	std::set<std::string> files;
-
-	// argv[0] is the path of the executable and skipped
-	for (int i = 1; i < argc; i++)
+	enum class Level
 	{
-		char* arg = argv[i];
-		if (arg[0] == '-' && arg[1] != '\0') // Flag character
-		{
-			char flag = arg[1];
-			char* flagArg = nullptr;
-			if (arg[2] != '\0')
-			{
-				flagArg = arg + 2;
-			}
-			else if (i + 1 < argc)
-			{
-				flagArg = argv[++i];
-			}
+		failTests = 0,
+		failAsserts,
+		allTests,
+		allAsserts
+	};
+	Level verbosity = Level::failAsserts;
 
-			switch (flag)
+	inline void log(const Test* test, bool testPass, const std::vector<Result> &results) const;
+	inline void log(const std::string &msg) const;
+};
+
+// Holds result of a single assertion.
+struct Result
+{
+	std::string expression;
+	size_t line;
+	bool pass;
+};
+
+// Random helper functions.
+inline size_t digits(size_t n)
+{
+	size_t digits = 1;
+	while ((n /= 10) > 0)
+	{
+		++digits;
+	}
+	return digits;
+}
+
+// class Test
+Test::Test(const std::string &name, const std::string &file, size_t line, TestFunc test) :
+	name{name},
+	file{file},
+	line{line},
+	test{test}
+{
+	byName().emplace(name, this);
+	byFile().emplace(file, this);
+	maxLine(line);
+}
+
+std::multimap<std::string, Test*> &Test::byName()
+{
+	static std::multimap<std::string, Test*> byName_;
+	return byName_;
+}
+std::multimap<std::string, Test*> &Test::byFile()
+{
+	static std::multimap<std::string, Test*> byFile_;
+	return byFile_;
+}
+std::set<Test*, CmpFunc> &Test::tests()
+{
+	static std::set<Test*, CmpFunc> tests_{cmp};
+	return tests_;
+}
+size_t &Test::maxLine(size_t line)
+{
+	static size_t maxLine_ = 0;
+	return maxLine_ = (line > maxLine_ ? line : maxLine_);
+}
+
+bool Test::cmp(const Test* left, const Test* right)
+{
+	return left->file != right->file ? left->file < right->file
+		: left->line != right->line ? left->line < right->line
+		: left->test < right->test;
+}
+
+bool Test::select(const std::string &key, const std::multimap<std::string, Test*> &map)
+{
+	auto [first, last] = map.equal_range(key);
+	for (auto it = first; it != last; ++it)
+	{
+		tests().insert(it->second);
+	}
+	return first != last; // Returns true if at least one test was found in selection.
+}
+
+bool Test::runName(const std::string &name)
+{
+	return select(name, byName());
+}
+
+bool Test::runFile(const std::string &file)
+{
+	return select(file, byFile());
+}
+
+size_t Test::run(const Logger &logger)
+{
+	if (tests().empty()) // Select all tests by name if none selected.
+	{
+		for (const auto &[key, value] : byName())
+		{
+			tests().insert(value);
+		}
+	}
+
+	size_t testsFailed = 0;
+	for (Test* t : tests())
+	{
+		std::vector<Result> results;
+		t->test(results);
+
+		bool testPass = true;
+		for (const auto &r : results)
+		{
+			testPass &= r.pass;
+		}
+		testsFailed += !testPass;
+
+		logger.log(t, testPass, results);
+	}
+
+	logger.log("\n");
+	logger.log("Tests run: " + std::to_string(tests().size()) + "\n");
+	logger.log("Tests failed: " + std::to_string(testsFailed) + "\n");
+	return testsFailed;
+}
+
+// struct Logger
+void Logger::log(const Test* test, bool testPass, const std::vector<Result> &results) const
+{
+	static std::string currentFile;
+
+	if (verbosity >= (testPass ? Level::allTests : Level::failTests))
+	{
+		if (test->file != currentFile)
+		{
+			std::cout << (currentFile != "" ? "\n" : "") // Skip newline before first filename.
+				<< (currentFile = test->file) << "\n";
+		}
+
+		std::cout << ":" << std::left << std::setw(digits(Test::maxLine()) + 1) << test->line
+			<< (testPass ? "[PASS]" : "[FAIL]") << " \"" << test->name << "\"\n";
+
+		for (const auto &r : results)
+		{
+			if (verbosity >= (r.pass ? Level::allAsserts : Level::failAsserts))
 			{
-				case 'f':
-					if (flagArg == nullptr)
-					{
-						std::cout << "Option " << arg << " requires parameter\n";
-					}
-					files.emplace(flagArg);
-					continue;
-				default:
-					std::cout << "Unknown option " << arg << "\n";
-					return -1;
+				std::cout << ":" << std::left << std::setw(digits(Test::maxLine()) + 5) << r.line
+					<< (r.pass ? "[PASS]" : "[FAIL]") << " " << r.expression << "\n";
 			}
 		}
 
-		// If argument was not a flag add it to names
-		names.emplace(arg);
+		std::cout.flush(); // Flush buffer after each test.
+	}
+}
+
+void Logger::log(const std::string &msg) const
+{
+	std::cout << msg;
+}
+
+} // namespace beeftest
+
+#define BEEF_UNIQ(PREFIX, LINE) PREFIX ## LINE
+#define BEEF_UNIQ_FUNC(LINE) BEEF_UNIQ(BEEF_FUNC_, LINE)
+#define BEEF_UNIQ_OBJ(LINE) BEEF_UNIQ(BEEF_OBJ_, LINE)
+
+#define beef_test(NAME) \
+void BEEF_UNIQ_FUNC(__LINE__)(std::vector<beeftest::Result> &); \
+beeftest::Test BEEF_UNIQ_OBJ(__LINE__){NAME, __FILE__, __LINE__, BEEF_UNIQ_FUNC(__LINE__)}; \
+void BEEF_UNIQ_FUNC(__LINE__)(std::vector<beeftest::Result> &results)
+
+#define beef_cond(EXPR) \
+results.push_back(beeftest::Result{"beef_cond(" #EXPR ")", __LINE__, (EXPR)});
+
+#define beef_assert(EXPR) \
+results.push_back(beeftest::Result{"beef_assert(" #EXPR ")", __LINE__, (EXPR)}); \
+if (results.back().pass == false) return;
+
+#ifdef ENABLE_BEEF_TEST_MAIN
+int main(int argc, char* argv[])
+{
+	beeftest::Logger logger;
+
+	std::string pFlags = "fv"; // Flags that take parameters.
+	for (size_t i = 1; i < argc; ++i)
+	{
+		char* arg = argv[i];
+		if (arg[0] != '-')
+		{
+			if (!beeftest::Test::runName(arg))
+			{
+				std::cout << "No tests found for name \"" << arg << "\"\n";
+				return -1;
+			}
+			continue;
+		}
+
+		char flag = arg[1];
+		char* param = nullptr;
+		if (pFlags.find(flag) != std::string::npos) // Check if flag requires parameter.
+		{
+			param = (arg[2] != '\0') ? arg + 2 :
+				(++i < argc) ? argv[i] : nullptr;
+			if (param == nullptr)
+			{
+				std::cout << "Missing parameter for option -" << flag << "\n";
+				return -1;
+			}
+		}
+
+		switch (flag)
+		{
+		case 'f':
+			if (!beeftest::Test::runFile(param))
+			{
+				std::cout << "No tests found for file \"" << param << "\"\n";
+				return -1;
+			}
+			continue;
+		case 'v':
+			try
+			{
+				logger.verbosity = beeftest::Logger::Level{std::stoi(param)};
+			}
+			catch (const std::invalid_argument &e)
+			{
+				std::cout << "Verbosity level must be an integer.\n";
+				return -1;
+			}
+			continue;
+		default:
+			std::cout << "Unknown option -" << flag << "\n";
+			return -1;
+		}
 	}
 
-	return BEEF::TestCase::runTests(names, files);
+	size_t testsFailed = beeftest::Test::run(logger);
+	return testsFailed < 256 ? testsFailed : 255;
 }
-#endif //ENABLE_BEEF_MAIN
+#endif // ENABLE_BEEF_TEST_MAIN

@@ -1,47 +1,53 @@
 # BeefTest
-A simple C++ unit testing framework written to waste my time on a Sunday afternoon. You should probably use something else as I guarantee this is worse. Modeled after [Catch](https://github.com/catchorg/Catch2).
+A simple C++ unit testing framework written to waste my time on a Sunday afternoon. You should probably use something else as I guarantee this is worse. Modeled after [Catch2](https://github.com/catchorg/Catch2).
 
 ## Writing Tests
 Create a new source file and add these two lines at the top.
 ```C++
-#define ENABLE_BEEF_MAIN
+#define ENABLE_BEEF_TEST_MAIN
 #include "beeftest.hh"
 ```
-`#define ENABLE_BEEF_MAIN` provides a main to run your unit tests, so only add it to one file.  
-Following that, include any production code you plan on testing and use the `BEEF_TEST(testname)` macro to write your tests. Replace `testname` with a unique name for every test.
+`#define ENABLE_BEEF_TEST_MAIN` provides a main to run your unit tests, so only add it to one file.  
+Following that, include any production code you plan on testing and use the `beef_test("name")` macro to write your tests. Test names do not have to be unique, but they will be harder to distinguish if not.
 ```C++
-#define ENABLE_BEEF_MAIN
+#define ENABLE_BEEF_TEST_MAIN
 #include "beeftest.hh"
 
-#include "myProductionCode.hh"
+#include "myproductioncode.hh"
 
-BEEF_TEST(foo)
+beef_test("foobar")
 {
-	/*
-	 * Perform any initialization here
+	 /* Any setup if necessary.
 	 */
-	ASSERT(2 + 2 == 4);
+	beef_cond(/* Expression. */);
 }
 ```
-Inside each test you may define requirements by using the `ASSERT(expression)` macro. If an expression evaluates to false in one or more assertions, the test will fail.
+`beef_test("name")` expects you to define a function which includes one or more `beef_cond(expression)` statements. For each included condition, the expression is saved, evaluated once, and it's result recorded. If one or more expressions evaluate to false, then the test fails.
+
+If you would rather a test immediately fail and return when a given expression evaluates to false, use the `beef_assert(expression)` macro instead.
+```C++
+beef_test("fizz")
+{
+	/* Setup.
+	 */
+	beef_assert(myPtr != nullptr);
+	beef_cond(myPtr->action());
+}
+```
 
 ## Running Tests
-Your compiled test code will by default run all tests. After running it will display a count of tests executed and tests failed.
-```
+The included main will by default run all tests and print any failing tests (and their failing conditions) to stdout. A count of failed tests will also be displayed and set as the program's exit code.
+```console
 $ ./test.exe
-1 tests executed!
-0 tests failed!
-```
-All failing tests, if any, will be displayed followed by the assertions that failed.
-```
-$ ./test.exe
-[foobar] (test/test_main.cpp:14) FAILED
-  ASSERT(2 + 2 == 5); FAILED
-2 tests executed!
-1 tests failed!
-```
-A full log of all tests run (and whether they passed or failed) will be written to _testlog.txt_
+test.cpp
+:9 [FAIL] "foobar"
+:12    [FAIL] (9 % -7 == -5)
 
-You may pass a list of test names as command line arguments to only run specific tests, or alternatively use the `-f` option to pass a filename and run all tests in that file.  
-`./test.exe foo bar foobar` executes tests _foo_, _bar_, and _foobar_.  
+Tests run: 2
+Tests failed: 1
+```
+The verbosity of the output can be changed with the `-v` option between levels `-v0` and `-v3` (default is `-v1`).
+
+Rather than running all tests, individual test names may be passed as arguments or, alternatively, the `-f` option may be used to pass in a filename.  
+`./test.exe foo bar foobar` executes tests "foo", "bar", and "foobar".  
 `./test.exe foo bar foobar -f test_feature.cpp` additionally executes all tests defined in _test_feature.cpp_.
